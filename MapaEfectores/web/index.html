@@ -1,0 +1,728 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Mapa de Atenciones en Salud Mental y Adicciones</title>
+
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
+
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    html, body { 
+      height: 100%; 
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, Arial, sans-serif;
+      color: #020202;
+    }
+    
+    #map { height: 100%; width: 100%; }
+
+    /* ========== PANEL LATERAL ========== */
+    .sidebar {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 320px;
+      height: 100%;
+      background: linear-gradient(180deg, #4a5568 0%, #5a6c7d 100%);
+      box-shadow: 4px 0 20px rgba(0,0,0,0.25);
+      z-index: 1000;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* Logo Header */
+    .sidebar-header {
+      background: #FAFAFC;
+      padding: 12px 8px;
+    }
+
+    .logo-container {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      margin-bottom: 8px;
+      padding: 0;
+    }
+
+    .header-divider {
+      height: 1px;
+      width: 100%;
+      background: rgba(0,0,0,0.08);
+      margin: 6px 0;
+    }
+
+    .logo-muni { 
+      height: 30px;
+      width: auto;
+      display: block;
+      object-fit: contain;
+      flex-shrink: 0;
+    }
+
+    .logo-sm {
+      height: 35px;
+      width: auto;
+      display: block;
+      object-fit: contain;
+      flex-shrink: 0;
+    }
+
+    .logo-img { 
+      height: 35px;
+      width: auto;
+      display: block;
+      object-fit: contain;
+      flex-shrink: 0;
+    }
+
+    .page-title {
+      color: #020202;
+      font-size: 18px;
+      font-weight: 600;
+      margin-top: 8px;
+      padding: 8px 2px 0 2px;
+      text-align: center;
+      line-height: 1.3;
+    }
+
+    /* Filtered Center Display */
+    .filtered-center {
+      background: #e8f4f8;
+      padding: 8px 10px;
+      margin: 12px 12px 8px 12px;
+      border-radius: 6px;
+      border-left: 4px solid #3498db;
+      display: none;
+    }
+
+    .filtered-center.show {
+      display: block;
+    }
+
+    .filtered-center-label {
+      font-size: 9px;
+      font-weight: 600;
+      text-transform: uppercase;
+      color: #2c3e50;
+      margin-bottom: 2px;
+    }
+
+    .filtered-center-name {
+      font-size: 12px;
+      font-weight: 700;
+      color: #004B81;
+    }
+
+    /* Stats Cards */
+    .stats-container {
+      padding: 12px;
+      background: #FAFAFC;
+    }
+
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 8px;
+    }
+
+    .stat-card {
+      background: linear-gradient(135deg, #B0B6BB 0%, #8F9599 100%);
+      padding: 10px;
+      border-radius: 8px;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.08);
+    }
+
+    .stat-label {
+      color: #020202;
+      font-size: 9px;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+      margin-bottom: 3px;
+      line-height: 1.2;
+    }
+
+    .stat-value {
+      color: #020202;
+      font-size: 18px;
+      font-weight: 700;
+      line-height: 1;
+    }
+
+    /* Filters Section */
+    .filters-container {
+      flex: 1;
+      overflow-y: auto;
+      padding: 12px;
+      background: #FAFAFC;
+    }
+
+    .filters-container::-webkit-scrollbar {
+      width: 5px;
+    }
+
+    .filters-container::-webkit-scrollbar-track {
+      background: rgba(0,0,0,0.04);
+    }
+
+    .filters-container::-webkit-scrollbar-thumb {
+      background: rgba(0,0,0,0.12);
+      border-radius: 3px;
+    }
+
+    .filter-section {
+      margin-bottom: 15px;
+    }
+
+    .filter-header {
+      color: #020202;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .filter-icon {
+      font-size: 13px;
+    }
+
+    /* Modern Dropdown */
+    .ms-wrap {
+      position: relative;
+      width: 100%;
+      margin-bottom: 8px;
+    }
+
+    .ms-btn {
+      width: 100%;
+      padding: 10px 12px;
+      border-radius: 8px;
+      border: 1px solid rgba(0,0,0,0.08);
+      background: #ffffff;
+      color: #2c3e50;
+      text-align: left;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 500;
+      transition: all 0.3s ease;
+      position: relative;
+    }
+
+    .ms-btn:hover {
+      background: #f1f3f5;
+      border-color: #9c9a9a;
+    }
+
+    .ms-btn::after {
+      content: '▼';
+      position: absolute;
+      right: 12px;
+      top: 50%;
+      transform: translateY(-50%);
+      font-size: 9px;
+      color: #cbd5e0;
+    }
+
+    .ms-drop {
+      position: absolute;
+      top: 48px;
+      left: 0;
+      right: 0;
+      background: #fff;
+      border: 1px solid #ddd;
+      border-radius: 10px;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+      display: none;
+      z-index: 3000;
+      max-height: 250px;
+      overflow: hidden;
+    }
+
+    .ms-drop.open {
+      display: block;
+    }
+
+    .ms-actions {
+      display: flex;
+      gap: 6px;
+      padding: 10px;
+      border-bottom: 1px solid #eee;
+      background: #f8f9fa;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+
+    .ms-actions button {
+      flex: 1;
+      padding: 7px 10px;
+      border: 1px solid #ddd;
+      background: white;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 10px;
+      font-weight: 600;
+      color: #2c3e50;
+      transition: all 0.2s ease;
+    }
+
+    .ms-actions button:hover {
+      background: #f1f3f5;
+      border-color: #3498db;
+    }
+
+    .ms-actions .right {
+      background: #3498db;
+      color: white;
+      border-color: #2980b9;
+    }
+
+    .ms-actions .right:hover {
+      background: #2980b9;
+    }
+
+    .ms-list {
+      max-height: 180px;
+      overflow-y: auto;
+    }
+
+    .ms-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      cursor: pointer;
+      transition: background 0.2s ease;
+    }
+
+    .ms-item:hover {
+      background: #f8f9fa;
+    }
+
+    .ms-item input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+      cursor: pointer;
+    }
+
+    .ms-item span {
+      font-size: 12px;
+      color: #2c3e50;
+      font-weight: 500;
+    }
+
+    /* IVS Indicators */
+    .ivs-indicator {
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      display: inline-block;
+      border: 2px solid white;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    }
+
+    /* Clear Button */
+    .clear-filters-btn {
+      width: 100%;
+      padding: 12px;
+      background: linear-gradient(135deg, #B0B6BB 0%, #8F9599 100%);
+      color: #020202;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 600;
+      transition: all 0.3s ease;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.08);
+    }
+
+    .clear-filters-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 18px rgba(0,0,0,0.12);
+    }
+
+    /* Status */
+    .status-container {
+      padding: 12px;
+      background: #8F9599;
+      border-top: 1px solid rgba(0,0,0,0.12);
+    }
+
+    .status-text {
+      color: #cbd5e0;
+      font-size: 10px;
+      text-align: center;
+    }
+
+    .status-text.success {
+      color: #000000;
+    }
+
+    /* IVS Legend */
+    .ivs-legend {
+      position: absolute;
+      bottom: 30px;
+      left: 340px;
+      background: white;
+      padding: 12px;
+      border-radius: 10px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+      z-index: 1000;
+      display: none;
+    }
+
+    .ivs-legend-title {
+      font-weight: 700;
+      margin-bottom: 8px;
+      font-size: 12px;
+      color: #020202;
+    }
+
+    .ivs-legend-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: 5px 0;
+    }
+
+    .ivs-legend-color {
+      width: 20px;
+      height: 20px;
+      border-radius: 4px;
+      border: 2px solid white;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    }
+
+    .ivs-legend-label {
+      font-size: 11px;
+      color: #020202;
+      font-weight: 500;
+    }
+
+    /* Filter Legend (Referencias) */
+    .filter-legend {
+      position: absolute;
+      top: 20px;
+      right: 20px;
+      background: white;
+      padding: 12px;
+      border-radius: 10px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+      z-index: 1000;
+      display: none;
+      max-width: 250px;
+    }
+
+    .filter-legend-title {
+      font-weight: 700;
+      margin-bottom: 8px;
+      font-size: 12px;
+      color: #020202;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: 5px 0;
+    }
+
+    .legend-icon {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .legend-icon-img {
+      width: 24px;
+      height: 24px;
+      object-fit: contain;
+      flex-shrink: 0;
+    }
+
+    .legend-label {
+      font-size: 11px;
+      color: #020202;
+      font-weight: 500;
+      line-height: 1.2;
+    }
+
+    /* ========== RESPONSIVE ========== */
+    @media (max-width: 768px) {
+      .sidebar {
+        width: 100%;
+        height: auto;
+        max-height: 60vh;
+        position: relative;
+      }
+
+      .logo-container {
+        flex-direction: column;
+        align-items: center;
+      }
+
+      .page-title {
+        font-size: 14px;
+      }
+
+      .stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+
+      .stat-label {
+        font-size: 8px;
+      }
+
+      .stat-value {
+        font-size: 16px;
+      }
+
+      .ivs-legend {
+        left: 12px;
+        bottom: 12px;
+      }
+
+      .filter-legend {
+        top: 12px;
+        right: 12px;
+      }
+    }
+
+    @media (max-width: 480px) {
+      .sidebar {
+        max-height: 70vh;
+      }
+
+      .logo-img,
+      .logo-muni {
+        height: 35px;
+      }
+
+      .page-title {
+        font-size: 13px;
+      }
+
+      .stat-card {
+        padding: 8px;
+      }
+
+      .stat-label {
+        font-size: 7px;
+      }
+
+      .stat-value {
+        font-size: 14px;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <div id="map"></div>
+
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <!-- Header -->
+    <div class="sidebar-header">
+      <div class="logo-container">
+        <img src="assets/SecreC.png" class="logo-muni" alt="Secretaría de Salud" />
+        <img src="assets/SM.png" class="logo-sm" alt="Salud Mental" />
+        <img src="assets/HorizontalCT.png" class="logo-img" alt="Coordinación Tecnológica" />
+      </div>
+      <div class="header-divider" aria-hidden="true"></div>
+      <div class="page-title">
+        Mapa de Atenciones en Salud Mental y Adicciones
+      </div>
+    </div>
+
+    <!-- Filtered Center -->
+    <div class="filtered-center" id="filteredCenter">
+      <div class="filtered-center-label">Centro filtrado</div>
+      <div class="filtered-center-name" id="filteredCenterName">-</div>
+    </div>
+
+    <!-- Stats Cards -->
+    <div class="stats-container">
+      <div class="stats-grid">
+        <div class="stat-card primary">
+          <div class="stat-label">Efectores de Salud Mental</div>
+          <div class="stat-value" id="statEfectores">-</div>
+        </div>
+        <div class="stat-card success">
+          <div class="stat-label">Atenciones</div>
+          <div class="stat-value" id="statAtenciones">-</div>
+        </div>
+        <div class="stat-card info">
+          <div class="stat-label">Pacientes</div>
+          <div class="stat-value" id="statPacientes">-</div>
+        </div>
+        <div class="stat-card warning">
+          <div class="stat-label">Pacientes Geolocalizados</div>
+          <div class="stat-value" id="statGeolocalizados">-</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="filters-container">
+      
+      <!-- Filtro Efectores SM -->
+      <div class="filter-section">
+        <div class="filter-header">
+          <span class="filter-icon">🏥</span>
+          Efectores de Salud Mental
+        </div>
+        <div class="ms-wrap" id="smWrap">
+          <button class="ms-btn" id="smBtn">Seleccionar…</button>
+          <div class="ms-drop" id="smDrop">
+            <div class="ms-actions">
+              <button type="button" id="smAll">Todos</button>
+              <button type="button" id="smNone">Ninguno</button>
+              <button type="button" id="smApply" class="right">Aplicar</button>
+            </div>
+            <div class="ms-list" id="smList"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Filtro Efectores Públicos -->
+      <div class="filter-section">
+        <div class="filter-header">
+          <span class="filter-icon">🏛️</span>
+          Establecimientos Públicos
+        </div>
+        <div class="ms-wrap" id="msWrap">
+          <button class="ms-btn" id="msBtn">Seleccionar…</button>
+          <div class="ms-drop" id="msDrop">
+            <div class="ms-actions">
+              <button type="button" id="msAll">Todos</button>
+              <button type="button" id="msNone">Ninguno</button>
+              <button type="button" id="msApply" class="right">Aplicar</button>
+            </div>
+            <div class="ms-list" id="msList"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Filtro Zonas -->
+      <div class="filter-section">
+        <div class="filter-header">
+          <span class="filter-icon">📍</span>
+          Zonas
+        </div>
+        <div class="ms-wrap" id="zonasWrap">
+          <button class="ms-btn" id="zonasBtn">Seleccionar…</button>
+          <div class="ms-drop" id="zonasDrop">
+            <div class="ms-actions">
+              <button type="button" id="zonasAll">Todos</button>
+              <button type="button" id="zonasNone">Ninguno</button>
+              <button type="button" id="zonasApply" class="right">Aplicar</button>
+            </div>
+            <div class="ms-list" id="zonasList"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Filtro Seccionales -->
+      <div class="filter-section">
+        <div class="filter-header">
+          <span class="filter-icon">🗺️</span>
+          Seccionales
+        </div>
+        <div class="ms-wrap" id="seccionalesWrap">
+          <button class="ms-btn" id="seccionalesBtn">Seleccionar…</button>
+          <div class="ms-drop" id="seccionalesDrop">
+            <div class="ms-actions">
+              <button type="button" id="seccionalesAll">Todos</button>
+              <button type="button" id="seccionalesNone">Ninguno</button>
+              <button type="button" id="seccionalesApply" class="right">Aplicar</button>
+            </div>
+            <div class="ms-list" id="seccionalesList"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Filtro IVS -->
+      <div class="filter-section">
+        <div class="filter-header">
+          <span class="filter-icon">📊</span>
+          Índice de Vulnerabilidad Social (IVS)
+        </div>
+        <div class="ms-wrap" id="ivsWrap">
+          <button class="ms-btn" id="ivsBtn">Seleccionar…</button>
+          <div class="ms-drop" id="ivsDrop">
+            <div class="ms-actions">
+              <button type="button" id="ivsAll">Todos</button>
+              <button type="button" id="ivsNone">Ninguno</button>
+              <button type="button" id="ivsApply" class="right">Aplicar</button>
+            </div>
+            <div class="ms-list" id="ivsList"></div>
+          </div>
+        </div>
+      </div>
+
+      <button class="clear-filters-btn" id="clearFiltersBtn">🧹 Limpiar Todos los Filtros</button>
+    </div>
+
+    <!-- Status -->
+    <div class="status-container">
+      <div class="status-text" id="status">Cargando datos...</div>
+    </div>
+  </div>
+
+  <!-- IVS Legend -->
+  <div class="ivs-legend" id="ivsLegend">
+    <div class="ivs-legend-title">📊 IVS - Prioridad</div>
+    <div class="ivs-legend-item">
+      <div class="ivs-legend-color" style="background-color: #C44C4C"></div>
+      <div class="ivs-legend-label">1 - Muy alta</div>
+    </div>
+    <div class="ivs-legend-item">
+      <div class="ivs-legend-color" style="background-color: #E67E50"></div>
+      <div class="ivs-legend-label">2 - Alta</div>
+    </div>
+    <div class="ivs-legend-item">
+      <div class="ivs-legend-color" style="background-color: #F4D03F"></div>
+      <div class="ivs-legend-label">3 - Media</div>
+    </div>
+    <div class="ivs-legend-item">
+      <div class="ivs-legend-color" style="background-color: #7FCD91"></div>
+      <div class="ivs-legend-label">4 - Baja</div>
+    </div>
+    <div class="ivs-legend-item">
+      <div class="ivs-legend-color" style="background-color: #52A370"></div>
+      <div class="ivs-legend-label">5 - Muy baja</div>
+    </div>
+  </div>
+
+  <!-- Filter Legend (Referencias) -->
+  <div class="filter-legend" id="filterLegend">
+    <!-- Contenido generado dinámicamente -->
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="./app.js?v=20260209_v2"></script>
+</body>
+</html>
