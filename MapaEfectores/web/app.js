@@ -205,6 +205,8 @@ let chRows = [];
 let pacPorEfectorRows = [];
 let zonasGeoJSON = null;
 let ivsBarriosGeoJSON = null;
+let ivsPoligonosGeoJSON = null;
+let ivsPoligonosIndex = [];
 let seccionalesGeoJSON = null;
 let pacientesGlobal = 0;
 
@@ -528,26 +530,21 @@ function renderSeccionales(selectedSeccionales) {
 // ---------- Render IVS Barrios ----------
 function renderIVSBarrios(selectedIVS) {
   ivsBarriosLayer.clearLayers();
-  
+
   const ivsSet = new Set(selectedIVS);
-  
+
   ivsBarriosGeoJSON.features.forEach((feat) => {
-    const ivs = (feat.properties.IVS_PRIORI ?? "").toString().trim();
+    const ivs = (feat.properties.ivs_2024_1 ?? "").toString().trim();
     if (!ivs || !ivsSet.has(ivs)) return;
-    
+
     const color = IVS_COLORS[ivs] || "#cccccc";
-    
+
     const layer = L.geoJSON(feat, {
-      style: {
-        color: color,
-        weight: 1,
-        fillOpacity: 0.4,
-        fillColor: color
-      }
+      style: { color: color, weight: 1, fillOpacity: 0.4, fillColor: color }
     });
-    
-    const barrio = feat.properties.BARRIO || "Sin nombre";
-    layer.bindTooltip(`<b>${barrio}</b><br/>IVS: ${ivs} - ${IVS_LABELS[ivs]}`, { sticky: true, opacity: 0.9 });
+
+    const barrio = feat.properties.ivs_2024_v || "Sin nombre";
+    layer.bindTooltip(`<b>${barrio}</b><br/>IVS: ${ivs} — ${IVS_LABELS[ivs]}`, { sticky: true, opacity: 0.9 });
     layer.addTo(ivsBarriosLayer);
   });
 }
@@ -603,9 +600,16 @@ function renderPacientes(pacPorEfectorData, selectedIVS, selectedEfectores, sele
     const lat = num(r.lat), lng = num(r.lng);
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
 
-    // Filtrar por IVS si hay seleccionados
-    const ivs = (r.ivs ?? "").toString().trim();
-    if (ivsSet.size > 0 && ivs && !ivsSet.has(ivs)) return;
+    // IVS desde geolocalización — solo cuando hay filtro IVS activo
+    let ivs = "";
+    let barrioGeo = "";
+    if (ivsSet.size > 0 && ivsPoligonosIndex.length > 0) {
+      const geo = getIVSFromCoords(lat, lng);
+      ivs = geo.ivs || "";
+      barrioGeo = geo.barrio || "";
+      // Excluir si no cae en ningún polígono del filtro seleccionado
+      if (!ivs || !ivsSet.has(ivs)) return;
+    }
 
     // Filtrar por ZONA si hay seleccionadas
     if (zonasSet.size > 0) {
@@ -614,17 +618,22 @@ function renderPacientes(pacPorEfectorData, selectedIVS, selectedEfectores, sele
       if (!zona) return;
     }
 
+    // Color: IVS solo si hay filtro activo, azul base por defecto
+    const pacColor = (ivsSet.size > 0 && ivs && IVS_COLORS[ivs])
+      ? IVS_COLORS[ivs]
+      : PACIENTES_COLOR;
+
     const marker = L.circleMarker([lat, lng], { 
       radius: 4, 
       weight: 1, 
-      fillOpacity: 0.7,
+      fillOpacity: 0.8,
       color: "#ffffff",
-      fillColor: PACIENTES_COLOR
+      fillColor: pacColor
     });
-    
-    const tooltipText = ivs 
-      ? `<b>Paciente</b><br/>IVS: ${ivs} - ${IVS_LABELS[ivs]}<br/>Zona: ${r.zona || 'Sin zona'}<br/>Atenciones: ${num(r.atenciones) || 0}` 
-      : `<b>Paciente</b><br/>Sin IVS<br/>Zona: ${r.zona || 'Sin zona'}<br/>Atenciones: ${num(r.atenciones) || 0}`;
+
+    const tooltipText = ivs
+      ? `<b>Paciente</b><br/>Barrio: ${barrioGeo || 'Sin barrio'}<br/>IVS: ${ivs} — ${IVS_LABELS[ivs]}<br/>Zona: ${r.zona || 'Sin zona'}<br/>Atenciones: ${num(r.atenciones) || 0}`
+      : `<b>Paciente</b><br/>Zona: ${r.zona || 'Sin zona'}<br/>Atenciones: ${num(r.atenciones) || 0}`;
     marker.bindTooltip(tooltipText, { direction: "top", opacity: 0.9 });
     
     marker.addTo(pacientesLayer);
@@ -826,6 +835,48 @@ async function loadIVSBarrios() {
   ivsBarriosGeoJSON = await fetch(`./layers/ivs_barrios_4326.geojson?v=${Date.now()}`, { cache: "no-store" }).then(r => r.json());
 }
 
+async function loadIVSPoligonos() {
+  setStatus("Cargando polígonos IVS...");
+  ivsPoligonosGeoJSON = await fetch(`./layers/polygons_4326.geojson?v=${Date.now()}`, { cache: "no-store" }).then(r => r.json());
+  ivsPoligonosIndex = ivsPoligonosGeoJSON.features
+    .filter(f => f.properties.ivs_2024_1 && f.properties.ivs_2024_1.trim() !== '')
+    .map(f => {
+      const ring = f.geometry.type === 'Polygon'
+        ? f.geometry.coordinates[0]
+        : f.geometry.coordinates[0][0];
+      const lngs = ring.map(c => c[0]);
+      const lats = ring.map(c => c[1]);
+      return {
+        ivs: f.properties.ivs_2024_1.trim(),
+        barrio: f.properties.ivs_2024_v || '',
+        minLng: Math.min(...lngs), maxLng: Math.max(...lngs),
+        minLat: Math.min(...lats), maxLat: Math.max(...lats),
+        ring
+      };
+    });
+  console.log(`Índice IVS: ${ivsPoligonosIndex.length} polígonos`);
+}
+
+function pointInRing(lng, lat, ring) {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const xi = ring[i][0], yi = ring[i][1];
+    const xj = ring[j][0], yj = ring[j][1];
+    if (((yi > lat) !== (yj > lat)) && (lng < (xj - xi) * (lat - yi) / (yj - yi) + xi)) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
+
+function getIVSFromCoords(lat, lng) {
+  for (const poly of ivsPoligonosIndex) {
+    if (lng < poly.minLng || lng > poly.maxLng || lat < poly.minLat || lat > poly.maxLat) continue;
+    if (pointInRing(lng, lat, poly.ring)) return { ivs: poly.ivs, barrio: poly.barrio };
+  }
+  return { ivs: null, barrio: null };
+}
+
 async function loadPacientesGlobal() {
   setStatus("Cargando total pacientes...");
   const json = await fetch(`./data/pacientes_global.json?v=${Date.now()}`, { cache: "no-store" })
@@ -843,9 +894,8 @@ function applyFilter() {
   const selectedSeccionales = seccionalesControls.getChecked();
   const selectedIVS = ivsControls.getChecked();
 
-  // Leyenda IVS
-  const ivsBarriosActiva = map.hasLayer(ivsBarriosLayer);
-  if (selectedIVS.length > 0 || ivsBarriosActiva) {
+  // Leyenda IVS: solo si hay filtro IVS activo
+  if (selectedIVS.length > 0) {
     ivsLegendEl.style.display = 'block';
   } else {
     ivsLegendEl.style.display = 'none';
@@ -992,6 +1042,7 @@ clearFiltersBtn.addEventListener("click", () => {
     await loadZonas();
     await loadSeccionales();
     await loadIVSBarrios();
+    await loadIVSPoligonos();
     await loadPacientesGlobal();
 
     buildSaludMentalDropdown(smRows);
