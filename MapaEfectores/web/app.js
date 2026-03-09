@@ -603,25 +603,24 @@ function renderPacientes(pacPorEfectorData, selectedIVS, selectedEfectores, sele
     const lat = num(r.lat), lng = num(r.lng);
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
 
-    // IVS desde geolocalización — solo cuando hay filtro IVS activo
+    // IVS desde geolocalización — SIEMPRE se calcula para el tooltip
     let ivs = "";
     let barrioGeo = "";
-    if (ivsSet.size > 0 && ivsPoligonosIndex.length > 0) {
+    if (ivsPoligonosIndex.length > 0) {
       const geo = getIVSFromCoords(lat, lng);
       ivs = geo.ivs || "";
       barrioGeo = geo.barrio || "";
-      // Excluir si no cae en ningún polígono del filtro seleccionado
-      if (!ivs || !ivsSet.has(ivs)) return;
     }
+    // Si hay filtro IVS activo, excluir los que no coincidan
+    if (ivsSet.size > 0 && (!ivs || !ivsSet.has(ivs))) return;
 
-    // Filtrar por ZONA usando geolocalización (point-in-polygon)
+    // Zona desde geolocalización — SIEMPRE se calcula para el tooltip
     let zonaGeo = null;
-    if (zonasSet.size > 0) {
-      if (zonasPoligonosIndex.length > 0) {
-        zonaGeo = getZonaFromCoords(lat, lng);
-      }
-      if (!zonaGeo || !zonasSet.has(normTxt(zonaGeo))) return;
+    if (zonasPoligonosIndex.length > 0) {
+      zonaGeo = getZonaFromCoords(lat, lng);
     }
+    // Si hay filtro de zona activo, excluir los que no coincidan
+    if (zonasSet.size > 0 && (!zonaGeo || !zonasSet.has(normTxt(zonaGeo)))) return;
 
     // Color: IVS solo si hay filtro activo, azul base por defecto
     const pacColor = (ivsSet.size > 0 && ivs && IVS_COLORS[ivs])
@@ -636,9 +635,15 @@ function renderPacientes(pacPorEfectorData, selectedIVS, selectedEfectores, sele
       fillColor: pacColor
     });
 
-    const tooltipText = ivs
-      ? `<b>Paciente</b><br/>Barrio: ${barrioGeo || 'Sin barrio'}<br/>IVS: ${ivs} — ${IVS_LABELS[ivs]}<br/>Zona: ${zonaGeo || r.zona || 'Sin zona'}<br/>Atenciones: ${num(r.atenciones) || 0}`
-      : `<b>Paciente</b><br/>Zona: ${zonaGeo || r.zona || 'Sin zona'}<br/>Atenciones: ${num(r.atenciones) || 0}`;
+    // Formatear fecha_max como última atención
+    const fechaMax = r.fecha_max ? new Date(r.fecha_max).toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric" }) : null;
+    const lugar = (r.efector_sm || "").trim();
+
+    const tooltipText = `<b>Paciente</b><br/>` +
+      `Efector última atención: ${lugar || 'Sin dato'}<br/>` +
+      `Atenciones: ${num(r.atenciones) || 0}<br/>` +
+      `Zona: ${zonaGeo || 'Sin zona'}<br/>` +
+      `IVS: ${ivs ? `${ivs} — ${IVS_LABELS[ivs]}` : 'Sin dato'}`;
     marker.bindTooltip(tooltipText, { direction: "top", opacity: 0.9 });
     
     marker.addTo(pacientesLayer);
