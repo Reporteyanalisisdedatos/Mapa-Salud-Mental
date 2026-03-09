@@ -204,6 +204,7 @@ let smRows = [];
 let chRows = [];
 let pacPorEfectorRows = [];
 let zonasGeoJSON = null;
+let zonasPoligonosIndex = []; // Índice espacial para point-in-polygon de zonas
 let ivsBarriosGeoJSON = null;
 let ivsPoligonosGeoJSON = null;
 let ivsPoligonosIndex = [];
@@ -218,7 +219,7 @@ let smControls, msControls, zonasControls, seccionalesControls, ivsControls;
 // -------------------------------
 function buildSaludMentalDropdown(rows) {
   const efectores = rows.map(r => ({
-    id: r.efector_id || r.centro || "Sin nombre",
+    id: r.centro || r.efector_id || "Sin nombre",
     nombre: r.centro || r.efector_id || "Sin nombre"
   })).sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
 
@@ -560,7 +561,7 @@ function renderSaludMental(rows, selectedEfectores) {
     const lat = num(r.lat), lng = num(r.lng);
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
 
-    const efectorId = normTxt(r.efector_id || r.centro || "");
+    const efectorId = normTxt(r.centro || r.efector_id || "");
     if (!selSet.has(efectorId)) return;
 
     const name = (r.centro ?? "Sin nombre").trim();
@@ -594,8 +595,10 @@ function renderPacientes(pacPorEfectorData, selectedIVS, selectedEfectores, sele
 
   pacPorEfectorData.forEach((r) => {
     // Filtrar por efector
+    // Filtrar por efector — compara contra efector_sm y también contra efector_id por compatibilidad
     const efectorSM = normTxt(r.efector_sm || "");
-    if (!efectorSet.has(efectorSM)) return;
+    const efectorId = normTxt(r.efector_id || "");
+    if (!efectorSet.has(efectorSM) && !efectorSet.has(efectorId)) return;
 
     const lat = num(r.lat), lng = num(r.lng);
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
@@ -611,11 +614,13 @@ function renderPacientes(pacPorEfectorData, selectedIVS, selectedEfectores, sele
       if (!ivs || !ivsSet.has(ivs)) return;
     }
 
-    // Filtrar por ZONA si hay seleccionadas
+    // Filtrar por ZONA usando geolocalización (point-in-polygon)
+    let zonaGeo = null;
     if (zonasSet.size > 0) {
-      const zona = normTxt(r.zona || "");
-      if (zona && !zonasSet.has(zona)) return;
-      if (!zona) return;
+      if (zonasPoligonosIndex.length > 0) {
+        zonaGeo = getZonaFromCoords(lat, lng);
+      }
+      if (!zonaGeo || !zonasSet.has(normTxt(zonaGeo))) return;
     }
 
     // Color: IVS solo si hay filtro activo, azul base por defecto
@@ -632,8 +637,8 @@ function renderPacientes(pacPorEfectorData, selectedIVS, selectedEfectores, sele
     });
 
     const tooltipText = ivs
-      ? `<b>Paciente</b><br/>Barrio: ${barrioGeo || 'Sin barrio'}<br/>IVS: ${ivs} — ${IVS_LABELS[ivs]}<br/>Zona: ${r.zona || 'Sin zona'}<br/>Atenciones: ${num(r.atenciones) || 0}`
-      : `<b>Paciente</b><br/>Zona: ${r.zona || 'Sin zona'}<br/>Atenciones: ${num(r.atenciones) || 0}`;
+      ? `<b>Paciente</b><br/>Barrio: ${barrioGeo || 'Sin barrio'}<br/>IVS: ${ivs} — ${IVS_LABELS[ivs]}<br/>Zona: ${zonaGeo || r.zona || 'Sin zona'}<br/>Atenciones: ${num(r.atenciones) || 0}`
+      : `<b>Paciente</b><br/>Zona: ${zonaGeo || r.zona || 'Sin zona'}<br/>Atenciones: ${num(r.atenciones) || 0}`;
     marker.bindTooltip(tooltipText, { direction: "top", opacity: 0.9 });
     
     marker.addTo(pacientesLayer);
@@ -823,6 +828,33 @@ async function loadPacientesPorEfector() {
 async function loadZonas() {
   setStatus("Cargando zonas...");
   zonasGeoJSON = await fetch(`./layers/zonas.geojson?v=${Date.now()}`, { cache: "no-store" }).then(r => r.json());
+
+  // Construir índice espacial de zonas para point-in-polygon
+  zonasPoligonosIndex = [];
+  zonasGeoJSON.features.forEach(f => {
+    const name = f.properties.name;
+    if (!name || !f.geometry) return;
+
+    const geom = f.geometry;
+    const polys = geom.type === 'Polygon'
+      ? [geom.coordinates]
+      : geom.type === 'MultiPolygon'
+        ? geom.coordinates
+        : [];
+
+    polys.forEach(polyCoords => {
+      const ring = polyCoords[0]; // anillo exterior
+      const lngs = ring.map(c => c[0]);
+      const lats = ring.map(c => c[1]);
+      zonasPoligonosIndex.push({
+        name,
+        minLng: Math.min(...lngs), maxLng: Math.max(...lngs),
+        minLat: Math.min(...lats), maxLat: Math.max(...lats),
+        ring
+      });
+    });
+  });
+  console.log(`Índice Zonas: ${zonasPoligonosIndex.length} polígonos`);
 }
 
 async function loadSeccionales() {
@@ -875,6 +907,14 @@ function getIVSFromCoords(lat, lng) {
     if (pointInRing(lng, lat, poly.ring)) return { ivs: poly.ivs, barrio: poly.barrio };
   }
   return { ivs: null, barrio: null };
+}
+
+function getZonaFromCoords(lat, lng) {
+  for (const poly of zonasPoligonosIndex) {
+    if (lng < poly.minLng || lng > poly.maxLng || lat < poly.minLat || lat > poly.maxLat) continue;
+    if (pointInRing(lng, lat, poly.ring)) return poly.name;
+  }
+  return null;
 }
 
 async function loadPacientesGlobal() {
