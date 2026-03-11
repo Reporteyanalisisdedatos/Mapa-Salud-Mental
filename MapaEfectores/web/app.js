@@ -57,6 +57,7 @@ const ivsNone  = document.getElementById("ivsNone");
 const ivsApply = document.getElementById("ivsApply");
 
 const clearFiltersBtn = document.getElementById("clearFiltersBtn");
+const suicidioBtn = document.getElementById("suicidioBtn");
 
 const setStatus = (t, success = false) => {
   statusEl.textContent = t;
@@ -182,9 +183,9 @@ const IVS_LABELS = {
   "5": "Muy baja"
 };
 
-const PACIENTES_COLOR = "#004B81";
+const PACIENTES_COLOR = "#618dac";
 
-// Colores para zonas (diferentes para cada una)
+// Colores para zonas (diferentes para cada una) #007AD3
 const ZONA_COLORS = [
   "#3498db", "#2ecc71", "#e74c3c", "#f39c12", 
   "#9b59b6", "#1abc9c", "#34495e", "#e67e22", 
@@ -365,6 +366,7 @@ const pacientesLayer = L.layerGroup().addTo(map);
 const zonasLayer = L.layerGroup();
 const ivsBarriosLayer = L.layerGroup();
 const seccionalesLayer = L.layerGroup();
+const suicidioLayer = L.layerGroup();
 
 // ---------- Iconos ----------
 const iconSM = L.icon({
@@ -471,6 +473,18 @@ const iconosEstablecimientos = {
 // Iconos legacy (por si acaso)
 const iconHospitalMunicipal = iconosEstablecimientos["Hospitales"];
 const iconCentroSalud = iconosEstablecimientos["CentroSalud"];
+
+// Icono intentos de suicidio
+const iconSuicidio = L.icon({
+  iconUrl: "./assets/intento_suicidio.png",
+  iconSize: [25, 25],
+  iconAnchor: [18, 36],
+  tooltipAnchor: [0, -36],
+});
+
+// ---------- Data suicidio ----------
+let suicidioRows = [];
+let suicidioModoActivo = false;
 
 // ---------- Render Zonas ----------
 function renderZonas(selectedZonas) {
@@ -867,6 +881,66 @@ async function loadSeccionales() {
   seccionalesGeoJSON = await fetch(`./layers/SECCIONALES.json?v=${Date.now()}`, { cache: "no-store" }).then(r => r.json());
 }
 
+// ---------- Load Intentos de Suicidio ----------
+async function loadSuicidio() {
+  try {
+    const json = await fetch(`./data/intentos_suicidios.json?v=${Date.now()}`, { cache: "no-store" }).then(r => r.json());
+    suicidioRows = json.data || [];
+    console.log(`Intentos de suicidio cargados: ${suicidioRows.length}`);
+  } catch (e) {
+    console.warn("No se pudo cargar intento_suicidio.json:", e);
+    suicidioRows = [];
+  }
+}
+
+// ---------- Render Intentos de Suicidio ----------
+function renderSuicidio() {
+  suicidioLayer.clearLayers();
+
+  suicidioRows.forEach((r) => {
+    const lat = num(r.Latitud ?? r.latitud ?? r.lat);
+    const lng = num(r.Longitud ?? r.longitud ?? r.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+
+    const sexo = (r.Sexo ?? r.sexo ?? "Sin dato").toString().trim();
+    const doc = (r.Documento ?? r.documento ?? "").toString().trim();
+
+    const marker = L.marker([lat, lng], { icon: iconSuicidio });
+    marker.bindTooltip(
+      `<b>Intento de Suicidio</b><br/>Sexo: ${sexo}`,
+      { direction: "top", opacity: 0.95 }
+    );
+    marker.addTo(suicidioLayer);
+  });
+}
+
+// ---------- Toggle modo suicidio ----------
+function toggleSuicidioMode() {
+  suicidioModoActivo = !suicidioModoActivo;
+
+  if (suicidioModoActivo) {
+    suicidioBtn.classList.add("active");
+    suicidioBtn.textContent = "✖ Ocultar Intentos de Suicidio";
+    // Ocultar pacientes y efectores SM
+    if (map.hasLayer(pacientesLayer)) map.removeLayer(pacientesLayer);
+    if (map.hasLayer(saludMentalLayer)) map.removeLayer(saludMentalLayer);
+    // Mostrar intentos
+    renderSuicidio();
+    if (!map.hasLayer(suicidioLayer)) suicidioLayer.addTo(map);
+  } else {
+    suicidioBtn.classList.remove("active");
+    suicidioBtn.textContent = "🔴 Intentos de Suicidio";
+    // Ocultar intentos
+    suicidioLayer.clearLayers();
+    if (map.hasLayer(suicidioLayer)) map.removeLayer(suicidioLayer);
+    // Restaurar pacientes y efectores SM
+    if (!map.hasLayer(pacientesLayer)) pacientesLayer.addTo(map);
+    if (!map.hasLayer(saludMentalLayer)) saludMentalLayer.addTo(map);
+  }
+}
+
+suicidioBtn.addEventListener("click", toggleSuicidioMode);
+
 async function loadIVSBarrios() {
   setStatus("Cargando IVS por barrios...");
   ivsBarriosGeoJSON = await fetch(`./layers/ivs_barrios_4326.geojson?v=${Date.now()}`, { cache: "no-store" }).then(r => r.json());
@@ -1089,6 +1163,7 @@ clearFiltersBtn.addEventListener("click", () => {
     await loadIVSBarrios();
     await loadIVSPoligonos();
     await loadPacientesGlobal();
+    await loadSuicidio();
 
     buildSaludMentalDropdown(smRows);
     buildOtrosEfectoresDropdown(chRows);

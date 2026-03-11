@@ -399,6 +399,32 @@
       color: #020202;
     }
 
+    /* Botón Intentos de Suicidio */
+    .suicidio-btn {
+      width: 100%;
+      padding: 12px;
+      margin-top: 10px;
+      border-radius: 8px;
+      border: 1px solid rgba(0,0,0,0.1);
+      background: linear-gradient(135deg, #B0B6BB 0%, #8F9599 100%);
+      color: #020202;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      letter-spacing: 0.2px;
+    }
+
+    .suicidio-btn:hover {
+      background: linear-gradient(135deg, #9FA5AA 0%, #7E8488 100%);
+      border-color: rgba(0,0,0,0.2);
+    }
+
+    .suicidio-btn.active {
+      background: linear-gradient(135deg, #8F9599 0%, #6E7478 100%);
+      border-color: rgba(0,0,0,0.25);
+    }
+
     .ivs-legend-item {
       display: flex;
       align-items: center;
@@ -684,6 +710,7 @@
       </div>
 
       <button class="clear-filters-btn" id="clearFiltersBtn">🧹 Limpiar Todos los Filtros</button>
+      <button class="suicidio-btn" id="suicidioBtn">🔴 Intentos de Suicidio</button>
     </div>
 
     <!-- Status -->
