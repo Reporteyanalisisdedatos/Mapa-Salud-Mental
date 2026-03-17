@@ -57,6 +57,7 @@ const ivsNone  = document.getElementById("ivsNone");
 const ivsApply = document.getElementById("ivsApply");
 
 const clearFiltersBtn = document.getElementById("clearFiltersBtn");
+const suicidioBtn = document.getElementById("suicidioBtn");
 
 const setStatus = (t, success = false) => {
   statusEl.textContent = t;
@@ -182,9 +183,9 @@ const IVS_LABELS = {
   "5": "Muy baja"
 };
 
-const PACIENTES_COLOR = "#004B81";
+const PACIENTES_COLOR = "#618dac";
 
-// Colores para zonas (diferentes para cada una)
+// Colores para zonas (diferentes para cada una) #007AD3
 const ZONA_COLORS = [
   "#3498db", "#2ecc71", "#e74c3c", "#f39c12", 
   "#9b59b6", "#1abc9c", "#34495e", "#e67e22", 
@@ -204,6 +205,7 @@ let smRows = [];
 let chRows = [];
 let pacPorEfectorRows = [];
 let zonasGeoJSON = null;
+let zonasPoligonosIndex = []; // Índice espacial para point-in-polygon de zonas
 let ivsBarriosGeoJSON = null;
 let ivsPoligonosGeoJSON = null;
 let ivsPoligonosIndex = [];
@@ -218,7 +220,7 @@ let smControls, msControls, zonasControls, seccionalesControls, ivsControls;
 // -------------------------------
 function buildSaludMentalDropdown(rows) {
   const efectores = rows.map(r => ({
-    id: r.efector_id || r.centro || "Sin nombre",
+    id: r.centro || r.efector_id || "Sin nombre",
     nombre: r.centro || r.efector_id || "Sin nombre"
   })).sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
 
@@ -352,10 +354,15 @@ function setupDropdown(wrapEl, btnEl, dropEl, listEl, allBtn, noneBtn, applyBtn,
 // ---------- Mapa centrado en Córdoba ----------
 const map = L.map("map", { preferCanvas: true }).setView([-31.4201, -64.1888], 12);
 
-const baseOSM = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+//const baseOSM = L.tileLayer("https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png", {
+  //maxZoom: 19,
+  //attribution: "&copy; OpenStreetMap contributors"
+//}).addTo(map);
+const baseOSM = L.tileLayer("https://tiles.stadiamaps.com/tiles/osm_bright/{z}/{x}/{y}{r}.png", {
   maxZoom: 19,
-  attribution: "&copy; OpenStreetMap contributors",
+  attribution: "&copy; OpenStreetMap & Stadia Maps"
 }).addTo(map);
+
 
 // ---------- Leaflet layers ----------
 const saludMentalLayer = L.layerGroup().addTo(map);
@@ -364,6 +371,7 @@ const pacientesLayer = L.layerGroup().addTo(map);
 const zonasLayer = L.layerGroup();
 const ivsBarriosLayer = L.layerGroup();
 const seccionalesLayer = L.layerGroup();
+const suicidioLayer = L.layerGroup();
 
 // ---------- Iconos ----------
 const iconSM = L.icon({
@@ -471,6 +479,18 @@ const iconosEstablecimientos = {
 const iconHospitalMunicipal = iconosEstablecimientos["Hospitales"];
 const iconCentroSalud = iconosEstablecimientos["CentroSalud"];
 
+// Icono intentos de suicidio
+const iconSuicidio = L.icon({
+  iconUrl: "./assets/intento_suicidio.png",
+  iconSize: [25, 25],
+  iconAnchor: [18, 36],
+  tooltipAnchor: [0, -36],
+});
+
+// ---------- Data suicidio ----------
+let suicidioRows = [];
+let suicidioModoActivo = false;
+
 // ---------- Render Zonas ----------
 function renderZonas(selectedZonas) {
   zonasLayer.clearLayers();
@@ -560,7 +580,7 @@ function renderSaludMental(rows, selectedEfectores) {
     const lat = num(r.lat), lng = num(r.lng);
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
 
-    const efectorId = normTxt(r.efector_id || r.centro || "");
+    const efectorId = normTxt(r.centro || r.efector_id || "");
     if (!selSet.has(efectorId)) return;
 
     const name = (r.centro ?? "Sin nombre").trim();
@@ -594,29 +614,32 @@ function renderPacientes(pacPorEfectorData, selectedIVS, selectedEfectores, sele
 
   pacPorEfectorData.forEach((r) => {
     // Filtrar por efector
+    // Filtrar por efector — compara contra efector_sm y también contra efector_id por compatibilidad
     const efectorSM = normTxt(r.efector_sm || "");
-    if (!efectorSet.has(efectorSM)) return;
+    const efectorId = normTxt(r.efector_id || "");
+    if (!efectorSet.has(efectorSM) && !efectorSet.has(efectorId)) return;
 
     const lat = num(r.lat), lng = num(r.lng);
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
 
-    // IVS desde geolocalización — solo cuando hay filtro IVS activo
+    // IVS desde geolocalización — SIEMPRE se calcula para el tooltip
     let ivs = "";
     let barrioGeo = "";
-    if (ivsSet.size > 0 && ivsPoligonosIndex.length > 0) {
+    if (ivsPoligonosIndex.length > 0) {
       const geo = getIVSFromCoords(lat, lng);
       ivs = geo.ivs || "";
       barrioGeo = geo.barrio || "";
-      // Excluir si no cae en ningún polígono del filtro seleccionado
-      if (!ivs || !ivsSet.has(ivs)) return;
     }
+    // Si hay filtro IVS activo, excluir los que no coincidan
+    if (ivsSet.size > 0 && (!ivs || !ivsSet.has(ivs))) return;
 
-    // Filtrar por ZONA si hay seleccionadas
-    if (zonasSet.size > 0) {
-      const zona = normTxt(r.zona || "");
-      if (zona && !zonasSet.has(zona)) return;
-      if (!zona) return;
+    // Zona desde geolocalización — SIEMPRE se calcula para el tooltip
+    let zonaGeo = null;
+    if (zonasPoligonosIndex.length > 0) {
+      zonaGeo = getZonaFromCoords(lat, lng);
     }
+    // Si hay filtro de zona activo, excluir los que no coincidan
+    if (zonasSet.size > 0 && (!zonaGeo || !zonasSet.has(normTxt(zonaGeo)))) return;
 
     // Color: IVS solo si hay filtro activo, azul base por defecto
     const pacColor = (ivsSet.size > 0 && ivs && IVS_COLORS[ivs])
@@ -631,9 +654,15 @@ function renderPacientes(pacPorEfectorData, selectedIVS, selectedEfectores, sele
       fillColor: pacColor
     });
 
-    const tooltipText = ivs
-      ? `<b>Paciente</b><br/>Barrio: ${barrioGeo || 'Sin barrio'}<br/>IVS: ${ivs} — ${IVS_LABELS[ivs]}<br/>Zona: ${r.zona || 'Sin zona'}<br/>Atenciones: ${num(r.atenciones) || 0}`
-      : `<b>Paciente</b><br/>Zona: ${r.zona || 'Sin zona'}<br/>Atenciones: ${num(r.atenciones) || 0}`;
+    // Formatear fecha_max como última atención
+    const fechaMax = r.fecha_max ? new Date(r.fecha_max).toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric" }) : null;
+    const lugar = (r.efector_sm || "").trim();
+
+    const tooltipText = `<b>Paciente</b><br/>` +
+      `Efector última atención: ${lugar || 'Sin dato'}<br/>` +
+      `Atenciones: ${num(r.atenciones) || 0}<br/>` +
+      `Zona: ${zonaGeo || 'Sin zona'}<br/>` +
+      `IVS: ${ivs ? `${ivs} — ${IVS_LABELS[ivs]}` : 'Sin dato'}`;
     marker.bindTooltip(tooltipText, { direction: "top", opacity: 0.9 });
     
     marker.addTo(pacientesLayer);
@@ -823,12 +852,99 @@ async function loadPacientesPorEfector() {
 async function loadZonas() {
   setStatus("Cargando zonas...");
   zonasGeoJSON = await fetch(`./layers/zonas.geojson?v=${Date.now()}`, { cache: "no-store" }).then(r => r.json());
+
+  // Construir índice espacial de zonas para point-in-polygon
+  zonasPoligonosIndex = [];
+  zonasGeoJSON.features.forEach(f => {
+    const name = f.properties.name;
+    if (!name || !f.geometry) return;
+
+    const geom = f.geometry;
+    const polys = geom.type === 'Polygon'
+      ? [geom.coordinates]
+      : geom.type === 'MultiPolygon'
+        ? geom.coordinates
+        : [];
+
+    polys.forEach(polyCoords => {
+      const ring = polyCoords[0]; // anillo exterior
+      const lngs = ring.map(c => c[0]);
+      const lats = ring.map(c => c[1]);
+      zonasPoligonosIndex.push({
+        name,
+        minLng: Math.min(...lngs), maxLng: Math.max(...lngs),
+        minLat: Math.min(...lats), maxLat: Math.max(...lats),
+        ring
+      });
+    });
+  });
+  console.log(`Índice Zonas: ${zonasPoligonosIndex.length} polígonos`);
 }
 
 async function loadSeccionales() {
   setStatus("Cargando seccionales...");
   seccionalesGeoJSON = await fetch(`./layers/SECCIONALES.json?v=${Date.now()}`, { cache: "no-store" }).then(r => r.json());
 }
+
+// ---------- Load Intentos de Suicidio ----------
+async function loadSuicidio() {
+  try {
+    const json = await fetch(`./data/intentos_suicidios.json?v=${Date.now()}`, { cache: "no-store" }).then(r => r.json());
+    suicidioRows = json.data || [];
+    console.log(`Intentos de suicidio cargados: ${suicidioRows.length}`);
+  } catch (e) {
+    console.warn("No se pudo cargar intento_suicidio.json:", e);
+    suicidioRows = [];
+  }
+}
+
+// ---------- Render Intentos de Suicidio ----------
+function renderSuicidio() {
+  suicidioLayer.clearLayers();
+
+  suicidioRows.forEach((r) => {
+    const lat = num(r.Latitud ?? r.latitud ?? r.lat);
+    const lng = num(r.Longitud ?? r.longitud ?? r.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+
+    const sexo = (r.Sexo ?? r.sexo ?? "Sin dato").toString().trim();
+    const doc = (r.Documento ?? r.documento ?? "").toString().trim();
+
+    const marker = L.marker([lat, lng], { icon: iconSuicidio });
+    marker.bindTooltip(
+      `<b>Intento de Suicidio</b><br/>Sexo: ${sexo}`,
+      { direction: "top", opacity: 0.95 }
+    );
+    marker.addTo(suicidioLayer);
+  });
+}
+
+// ---------- Toggle modo suicidio ----------
+function toggleSuicidioMode() {
+  suicidioModoActivo = !suicidioModoActivo;
+
+  if (suicidioModoActivo) {
+    suicidioBtn.classList.add("active");
+    suicidioBtn.textContent = "✖ Ocultar Intentos de Suicidio";
+    // Ocultar pacientes y efectores SM
+    if (map.hasLayer(pacientesLayer)) map.removeLayer(pacientesLayer);
+    if (map.hasLayer(saludMentalLayer)) map.removeLayer(saludMentalLayer);
+    // Mostrar intentos
+    renderSuicidio();
+    if (!map.hasLayer(suicidioLayer)) suicidioLayer.addTo(map);
+  } else {
+    suicidioBtn.classList.remove("active");
+    suicidioBtn.textContent = "🔴 Intentos de Suicidio";
+    // Ocultar intentos
+    suicidioLayer.clearLayers();
+    if (map.hasLayer(suicidioLayer)) map.removeLayer(suicidioLayer);
+    // Restaurar pacientes y efectores SM
+    if (!map.hasLayer(pacientesLayer)) pacientesLayer.addTo(map);
+    if (!map.hasLayer(saludMentalLayer)) saludMentalLayer.addTo(map);
+  }
+}
+
+suicidioBtn.addEventListener("click", toggleSuicidioMode);
 
 async function loadIVSBarrios() {
   setStatus("Cargando IVS por barrios...");
@@ -875,6 +991,14 @@ function getIVSFromCoords(lat, lng) {
     if (pointInRing(lng, lat, poly.ring)) return { ivs: poly.ivs, barrio: poly.barrio };
   }
   return { ivs: null, barrio: null };
+}
+
+function getZonaFromCoords(lat, lng) {
+  for (const poly of zonasPoligonosIndex) {
+    if (lng < poly.minLng || lng > poly.maxLng || lat < poly.minLat || lat > poly.maxLat) continue;
+    if (pointInRing(lng, lat, poly.ring)) return poly.name;
+  }
+  return null;
 }
 
 async function loadPacientesGlobal() {
@@ -1044,6 +1168,7 @@ clearFiltersBtn.addEventListener("click", () => {
     await loadIVSBarrios();
     await loadIVSPoligonos();
     await loadPacientesGlobal();
+    await loadSuicidio();
 
     buildSaludMentalDropdown(smRows);
     buildOtrosEfectoresDropdown(chRows);
