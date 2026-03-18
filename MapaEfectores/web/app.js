@@ -354,10 +354,11 @@ function setupDropdown(wrapEl, btnEl, dropEl, listEl, allBtn, noneBtn, applyBtn,
 // ---------- Mapa centrado en Córdoba ----------
 const map = L.map("map", { preferCanvas: true }).setView([-31.4201, -64.1888], 12);
 
-const baseOSM = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+const baseOSM = L.tileLayer("https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png", {
   maxZoom: 19,
-  attribution: "&copy; OpenStreetMap contributors",
+  attribution: "&copy; <a href='https://www.openstreetmap.org/copyright'>OpenStreetMap</a> contributors"
 }).addTo(map);
+
 
 // ---------- Leaflet layers ----------
 const saludMentalLayer = L.layerGroup().addTo(map);
