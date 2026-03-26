@@ -562,6 +562,42 @@
         font-size: 14px;
       }
     }
+    /* Tarjetas año suicidio */
+    .anio-card {
+      background: linear-gradient(135deg, #B0B6BB 0%, #8F9599 100%);
+      border-radius: 6px;
+      padding: 5px 7px;
+      margin-bottom: 4px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    }
+    .anio-card-title {
+      font-size: 9px;
+      font-weight: 700;
+      color: #020202;
+      margin-bottom: 3px;
+    }
+    .anio-card-row {
+      display: flex;
+      gap: 4px;
+    }
+    .anio-stat {
+      flex: 1;
+      background: rgba(255,255,255,0.35);
+      border-radius: 4px;
+      padding: 2px 4px;
+      text-align: center;
+    }
+    .anio-stat-label {
+      font-size: 7px;
+      font-weight: 600;
+      text-transform: uppercase;
+      color: #2c3e50;
+    }
+    .anio-stat-value {
+      font-size: 11px;
+      font-weight: 700;
+      color: #020202;
+    }
   </style>
 </head>
 
@@ -589,8 +625,8 @@
       <div class="filtered-center-name" id="filteredCenterName">-</div>
     </div>
 
-    <!-- Stats Cards -->
-    <div class="stats-container">
+    <!-- Stats Cards (modo normal) -->
+    <div class="stats-container" id="statsNormal">
       <div class="stats-grid">
         <div class="stat-card primary">
           <div class="stat-label">Efectores de Salud Mental</div>
@@ -611,11 +647,26 @@
       </div>
     </div>
 
+    <!-- Stats Cards (modo suicidio) -->
+    <div class="stats-container" id="statsSuicidio" style="display:none;">
+      <div class="stats-grid">
+        <div class="stat-card primary">
+          <div class="stat-label">Total Registrados</div>
+          <div class="stat-value" id="statSuicTotal">-</div>
+        </div>
+        <div class="stat-card info">
+          <div class="stat-label">Geolocalizados</div>
+          <div class="stat-value" id="statSuicGeo">-</div>
+        </div>
+      </div>
+      <div id="suicidioAniosContainer" style="margin-top:8px;"></div>
+    </div>
+
     <!-- Filters -->
     <div class="filters-container">
       
-      <!-- Filtro Efectores SM -->
-      <div class="filter-section">
+      <!-- Filtro Efectores SM (oculto en modo suicidio) -->
+      <div class="filter-section" id="smSection">
         <div class="filter-header">
           <span class="filter-icon">🏥</span>
           Efectores de Salud Mental

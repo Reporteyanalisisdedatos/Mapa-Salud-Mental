@@ -492,20 +492,24 @@ function renderZonas(selectedZonas) {
   zonasLayer.clearLayers();
   
   const selSet = new Set(selectedZonas.map(normTxt));
-  let colorIndex = 0;
+  // BUG 1 FIX: Asignar color por índice del array selectedZonas (no por orden del GeoJSON)
+  // así el color del polígono en el mapa coincide siempre con la leyenda
+  const zonaColorMap = {};
+  selectedZonas.forEach((zona, idx) => {
+    zonaColorMap[normTxt(zona)] = ZONA_COLORS[idx % ZONA_COLORS.length];
+  });
   
   zonasGeoJSON.features.forEach((feat) => {
     const name = feat.properties.name;
     if (!name || !selSet.has(normTxt(name))) return;
     
-    const color = ZONA_COLORS[colorIndex % ZONA_COLORS.length];
-    colorIndex++;
+    const color = zonaColorMap[normTxt(name)] || ZONA_COLORS[0];
     
     const layer = L.geoJSON(feat, {
       style: {
         color: color,
         weight: 2,
-        fillOpacity: 0.1,
+        fillOpacity: 0.15,
         fillColor: color
       }
     });
@@ -520,20 +524,23 @@ function renderSeccionales(selectedSeccionales) {
   seccionalesLayer.clearLayers();
   
   const selSet = new Set(selectedSeccionales.map(normTxt));
-  let colorIndex = 0;
+  // BUG 4 FIX: Asignar color por índice del array selectedSeccionales (igual que la leyenda)
+  const seccColorMap = {};
+  selectedSeccionales.forEach((s, idx) => {
+    seccColorMap[normTxt(s)] = SECCIONAL_COLORS[idx % SECCIONAL_COLORS.length];
+  });
   
   seccionalesGeoJSON.features.forEach((feat) => {
     const name = feat.properties.NOMBRE || feat.properties.nombre || feat.properties.name;
     if (!name || !selSet.has(normTxt(name))) return;
     
-    const color = SECCIONAL_COLORS[colorIndex % SECCIONAL_COLORS.length];
-    colorIndex++;
+    const color = seccColorMap[normTxt(name)] || SECCIONAL_COLORS[0];
     
     const layer = L.geoJSON(feat, {
       style: {
         color: color,
         weight: 2,
-        fillOpacity: 0.1,
+        fillOpacity: 0.15,
         fillColor: color
       }
     });
@@ -889,58 +896,350 @@ async function loadSuicidio() {
     suicidioRows = json.data || [];
     console.log(`Intentos de suicidio cargados: ${suicidioRows.length}`);
   } catch (e) {
-    console.warn("No se pudo cargar intento_suicidio.json:", e);
+    console.warn("No se pudo cargar intentos_suicidios.json:", e);
     suicidioRows = [];
+  }
+  // Intentar cargar JSON completo (con FIS/Sexo para stats pero sin coords)
+  try {
+    const json2 = await fetch(`./data/intento-suicidio_completa.json?v=${Date.now()}`, { cache: "no-store" }).then(r => r.json());
+    window.suicidioRowsCompleto = json2.data || [];
+    console.log(`Suicidio completo cargados: ${window.suicidioRowsCompleto.length}`);
+  } catch (e) {
+    // Si no existe el archivo completo, usamos el mismo
+    window.suicidioRowsCompleto = suicidioRows;
   }
 }
 
-// ---------- Render Intentos de Suicidio ----------
+// ---------- Render Intentos de Suicidio (con filtros) ----------
 function renderSuicidio() {
   suicidioLayer.clearLayers();
+
+  const selectedZonas = zonasControls.getChecked();
+  const selectedSeccionales = seccionalesControls.getChecked();
+  const selectedIVS = ivsControls.getChecked();
+
+  let count = 0;
 
   suicidioRows.forEach((r) => {
     const lat = num(r.Latitud ?? r.latitud ?? r.lat);
     const lng = num(r.Longitud ?? r.longitud ?? r.lng);
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
 
-    const sexo = (r.Sexo ?? r.sexo ?? "Sin dato").toString().trim();
+    const sexo = (r.Sexo ?? r.sexo ?? "").toString().trim().toUpperCase();
+    const fis = (r.FIS ?? r.fis ?? "").toString().trim();
+    const edad = (r.Edad ?? r.edad ?? "").toString().trim();
     const doc = (r.Documento ?? r.documento ?? "").toString().trim();
 
+    // Filtro zonas (point-in-polygon)
+    // Si están seleccionadas TODAS las zonas, no filtrar por polígono
+    // (evita perder registros en bordes que no caen dentro de ningún polígono)
+    const totalZonasCbs = zonasList ? zonasList.querySelectorAll("input[type=checkbox]").length : 0;
+    const todasZonasSel = totalZonasCbs > 0 && selectedZonas.length >= totalZonasCbs;
+    if (selectedZonas.length > 0 && !todasZonasSel) {
+      const zona = getZonaFromCoords(lat, lng);
+      if (!zona || !selectedZonas.includes(zona)) return;
+    }
+
+    // Filtro seccionales (point-in-polygon)
+    if (selectedSeccionales.length > 0) {
+      const secc = getSeccionaFromCoords(lat, lng);
+      if (!secc || !selectedSeccionales.includes(secc)) return;
+    }
+
+    // Filtro IVS (point-in-polygon)
+    if (selectedIVS.length > 0) {
+      const { ivs } = getIVSFromCoords(lat, lng);
+      if (!ivs || !selectedIVS.includes(ivs)) return;
+    }
+
+    const sexoLabel = sexo === 'F' ? 'Femenino' : sexo === 'M' ? 'Masculino' : sexo || 'Sin dato';
     const marker = L.marker([lat, lng], { icon: iconSuicidio });
     marker.bindTooltip(
-      `<b>Intento de Suicidio</b><br/>Sexo: ${sexo}`,
+      `<b>Intento de Suicidio</b><br/>Sexo: ${sexoLabel}${edad ? '<br/>Edad: ' + edad : ''}${fis ? '<br/>Fecha: ' + fis : ''}`,
       { direction: "top", opacity: 0.95 }
     );
     marker.addTo(suicidioLayer);
+    count++;
   });
+
+  // Actualizar tarjeta "En mapa (filtro)"
+  const el = document.getElementById('statSuicFiltro');
+  if (el) el.textContent = fmt(count);
+
+  return count;
+}
+
+// ---------- Obtener seccional desde coordenadas ----------
+function getSeccionaFromCoords(lat, lng) {
+  if (!seccionalesGeoJSON) return null;
+  for (const f of seccionalesGeoJSON.features) {
+    const nombre = f.properties.NOMBRE || f.properties.nombre || f.properties.name;
+    const geom = f.geometry;
+    if (!geom) continue;
+    const rings = geom.type === 'Polygon'
+      ? [geom.coordinates[0]]
+      : geom.coordinates.map(p => p[0]);
+    for (const ring of rings) {
+      if (pointInRing(lng, lat, ring)) return nombre;
+    }
+  }
+  return null;
+}
+
+// ---------- Stats tarjetas por año ----------
+function parsearAnioFIS(fis) {
+  if (!fis) return null;
+  const s = fis.toString().trim();
+  // Formato DD/MM/YYYY
+  const m1 = s.match(/(\d{4})$/);
+  if (m1) return m1[1];
+  // Formato YYYY-MM-DD
+  const m2 = s.match(/^(\d{4})-/);
+  if (m2) return m2[1];
+  return null;
+}
+
+function updateSuicidioStats() {
+  const totalEl = document.getElementById('statSuicTotal');
+  const geoEl = document.getElementById('statSuicGeo');
+  const aniosContainer = document.getElementById('suicidioAniosContainer');
+
+  // Total: del JSON completo (intento_suicidio_completo), si existe; sino del actual
+  const totalRows = (window.suicidioRowsCompleto && window.suicidioRowsCompleto.length > 0)
+    ? window.suicidioRowsCompleto
+    : suicidioRows;
+
+  const total = totalRows.length;
+
+  // Geolocalizados: del JSON con coordenadas (suicidioRows)
+  const geo = suicidioRows.filter(r => {
+    const lat = num(r.Latitud ?? r.latitud ?? r.lat);
+    const lng = num(r.Longitud ?? r.longitud ?? r.lng);
+    return Number.isFinite(lat) && Number.isFinite(lng);
+  }).length;
+
+  if (totalEl) totalEl.textContent = fmt(total);
+  if (geoEl) geoEl.textContent = fmt(geo);
+
+  // Agrupar por año usando ANOFIS (campo directo) o parseando FIS
+  const porAnio = {};
+  totalRows.forEach(r => {
+    // Priorizar ANOFIS (campo directo del JSON completo), luego parsear FIS
+    const anioDirecto = (r.ANOFIS ?? r.anofis ?? "").toString().trim();
+    const fis = (r.FIS ?? r.fis ?? "").toString().trim();
+    const anio = (anioDirecto && anioDirecto !== "0") ? anioDirecto : parsearAnioFIS(fis);
+    if (!anio) return; // Ignorar sin fecha
+    if (!porAnio[anio]) porAnio[anio] = { total: 0, M: 0, F: 0 };
+    porAnio[anio].total++;
+    const sexo = (r.Sexo ?? r.sexo ?? "").toString().trim().toUpperCase();
+    if (sexo === 'M') porAnio[anio].M++;
+    else if (sexo === 'F') porAnio[anio].F++;
+  });
+
+  const aniosOrdenados = Object.keys(porAnio).sort().reverse();
+
+  if (aniosContainer) {
+    aniosContainer.innerHTML = `
+      <div style="font-size:9px; color:#555; background:#e8f0e8; border-left:3px solid #5a8a5a; border-radius:4px; padding:5px 7px; margin-bottom:6px; line-height:1.4;">
+        ℹ️ Los totales corresponden al <strong>total de registros</strong>, independientemente de si están geolocalizados.
+      </div>
+    ` + aniosOrdenados.map(anio => `
+      <div class="anio-card">
+        <div class="anio-card-title">📅 ${anio}</div>
+        <div class="anio-card-row">
+          <div class="anio-stat">
+            <div class="anio-stat-label">Total</div>
+            <div class="anio-stat-value">${fmt(porAnio[anio].total)}</div>
+          </div>
+          <div class="anio-stat">
+            <div class="anio-stat-label">Femenino</div>
+            <div class="anio-stat-value">${fmt(porAnio[anio].F)}</div>
+          </div>
+          <div class="anio-stat">
+            <div class="anio-stat-label">Masculino</div>
+            <div class="anio-stat-value">${fmt(porAnio[anio].M)}</div>
+          </div>
+        </div>
+      </div>
+    `).join('');
+  }
+}
+
+// ---------- Leyenda Referencias + resumen por año para suicidio ----------
+function updateSuicidioFilterLegend() {
+  const selectedZonas = zonasControls.getChecked();
+  const selectedSeccionales = seccionalesControls.getChecked();
+  const selectedIVS = ivsControls.getChecked();
+  const hayFiltro = selectedZonas.length > 0 || selectedSeccionales.length > 0 || selectedIVS.length > 0;
+
+  // Construir lookup de ANOFIS y Sexo desde el JSON completo (por Documento)
+  const completoMap = {};
+  const completo = window.suicidioRowsCompleto || [];
+  completo.forEach(r => {
+    const doc = (r.Documento ?? r.documento ?? "").toString().trim();
+    if (doc) completoMap[doc] = {
+      anio: (r.ANOFIS ?? r.anofis ?? "").toString().trim() || parsearAnioFIS((r.FIS ?? "").toString()),
+      sexo: (r.Sexo ?? "").toString().trim().toUpperCase()
+    };
+  });
+
+  let resumenAnios = '';
+  if (hayFiltro) {
+    const porAnio = {};
+    suicidioRows.forEach(r => {
+      const lat = num(r.Latitud ?? r.latitud ?? r.lat);
+      const lng = num(r.Longitud ?? r.longitud ?? r.lng);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+
+      // Aplicar mismos filtros que renderSuicidio
+      // Si están seleccionadas TODAS las zonas, no filtrar por polígono
+      // (evita perder registros en bordes que no caen dentro de ningún polígono)
+      const totalZonasDisponibles = zonasList ? zonasList.querySelectorAll("input[type=checkbox]").length : 0;
+      const todasZonasSeleccionadas = totalZonasDisponibles > 0 && selectedZonas.length >= totalZonasDisponibles;
+      if (selectedZonas.length > 0 && !todasZonasSeleccionadas) {
+        const zona = getZonaFromCoords(lat, lng);
+        if (!zona || !selectedZonas.includes(zona)) return;
+      }
+      if (selectedSeccionales.length > 0) {
+        const secc = getSeccionaFromCoords(lat, lng);
+        if (!secc || !selectedSeccionales.includes(secc)) return;
+      }
+      if (selectedIVS.length > 0) {
+        const { ivs } = getIVSFromCoords(lat, lng);
+        if (!ivs || !selectedIVS.includes(ivs)) return;
+      }
+
+      // Obtener año y sexo desde el JSON completo usando Documento
+      const doc = (r.Documento ?? r.documento ?? "").toString().trim();
+      const info = completoMap[doc] || {};
+      const anio = info.anio || parsearAnioFIS((r.FIS ?? "").toString()) || null;
+      const sexo = info.sexo || (r.Sexo ?? "").toString().trim().toUpperCase();
+      if (!anio) return;
+
+      if (!porAnio[anio]) porAnio[anio] = { total: 0, F: 0, M: 0 };
+      porAnio[anio].total++;
+      if (sexo === 'F') porAnio[anio].F++;
+      else if (sexo === 'M') porAnio[anio].M++;
+    });
+
+    const aniosOrdenados = Object.keys(porAnio).sort().reverse();
+    if (aniosOrdenados.length > 0) {
+      resumenAnios = `
+        <div style="margin-top:10px; border-top:1px solid #eee; padding-top:8px;">
+          <div style="font-size:11px; font-weight:700; color:#333; margin-bottom:6px;">📊 En área seleccionada</div>
+          ${aniosOrdenados.map(anio => `
+            <div style="margin-bottom:5px;">
+              <div style="font-size:10px; font-weight:700; color:#555;">📅 ${anio}</div>
+              <div style="display:flex; gap:4px; margin-top:2px;">
+                <div style="flex:1; background:#f0f0f0; border-radius:4px; padding:3px 5px; text-align:center;">
+                  <div style="font-size:8px; color:#666; text-transform:uppercase;">Total</div>
+                  <div style="font-size:13px; font-weight:700;">${porAnio[anio].total}</div>
+                </div>
+                <div style="flex:1; background:#f0f0f0; border-radius:4px; padding:3px 5px; text-align:center;">
+                  <div style="font-size:8px; color:#666; text-transform:uppercase;">F</div>
+                  <div style="font-size:13px; font-weight:700;">${porAnio[anio].F}</div>
+                </div>
+                <div style="flex:1; background:#f0f0f0; border-radius:4px; padding:3px 5px; text-align:center;">
+                  <div style="font-size:8px; color:#666; text-transform:uppercase;">M</div>
+                  <div style="font-size:13px; font-weight:700;">${porAnio[anio].M}</div>
+                </div>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      `;
+    }
+  }
+
+  filterLegendEl.innerHTML = `
+    <div class="filter-legend-title">📍 Referencias</div>
+    <div class="legend-item">
+      <img src="./assets/intento_suicidio.png" class="legend-icon-img" alt="Suicidio">
+      <div class="legend-label">Intento de Suicidio</div>
+    </div>
+    ${resumenAnios}
+  `;
+  filterLegendEl.style.display = 'block';
 }
 
 // ---------- Toggle modo suicidio ----------
 function toggleSuicidioMode() {
   suicidioModoActivo = !suicidioModoActivo;
 
+  const smSection = document.getElementById('smSection');
+  const sexoSection = document.getElementById('sexoSection');
+  const statsNormal = document.getElementById('statsNormal');
+  const statsSuicidio = document.getElementById('statsSuicidio');
+  const filteredCenter = document.getElementById('filteredCenter');
+
   if (suicidioModoActivo) {
     suicidioBtn.classList.add("active");
     suicidioBtn.textContent = "✖ Ocultar Intentos de Suicidio";
-    // Ocultar pacientes y efectores SM
+
+    // Ocultar elementos modo normal
+    if (smSection) smSection.style.display = 'none';
+    if (statsNormal) statsNormal.style.display = 'none';
+    if (filteredCenter) filteredCenter.style.display = 'none';
+
+    // Mostrar elementos modo suicidio
+    if (statsSuicidio) statsSuicidio.style.display = 'block';
+
+    // Ocultar capas normales
     if (map.hasLayer(pacientesLayer)) map.removeLayer(pacientesLayer);
     if (map.hasLayer(saludMentalLayer)) map.removeLayer(saludMentalLayer);
-    // Mostrar intentos
-    renderSuicidio();
+
+    // Mostrar capa suicidio
     if (!map.hasLayer(suicidioLayer)) suicidioLayer.addTo(map);
+    updateSuicidioStats();
+    const countInicial = renderSuicidio();
+
+    // IVS legend si hay filtro activo
+    const ivsActivosInicial = ivsControls.getChecked();
+    ivsLegendEl.style.display = ivsActivosInicial.length > 0 ? 'block' : 'none';
+
+    updateSuicidioFilterLegend();
+
   } else {
     suicidioBtn.classList.remove("active");
     suicidioBtn.textContent = "🔴 Intentos de Suicidio";
-    // Ocultar intentos
+
+    // Ocultar elementos modo suicidio
+    if (statsSuicidio) statsSuicidio.style.display = 'none';
+
+    // Mostrar elementos modo normal
+    if (smSection) smSection.style.display = 'block';
+    if (statsNormal) statsNormal.style.display = 'block';
+
+    // Ocultar capa suicidio
     suicidioLayer.clearLayers();
     if (map.hasLayer(suicidioLayer)) map.removeLayer(suicidioLayer);
-    // Restaurar pacientes y efectores SM
+
+    // BUG 3: Limpiar las capas de polígonos que pudo haber activado el modo suicidio
+    // para que applyFilter las re-evalúe con el estado correcto para pacientes
+    zonasLayer.clearLayers();
+    if (map.hasLayer(zonasLayer)) map.removeLayer(zonasLayer);
+    seccionalesLayer.clearLayers();
+    if (map.hasLayer(seccionalesLayer)) map.removeLayer(seccionalesLayer);
+    ivsBarriosLayer.clearLayers();
+    if (map.hasLayer(ivsBarriosLayer)) map.removeLayer(ivsBarriosLayer);
+    centrosLayer.clearLayers();
+    if (map.hasLayer(centrosLayer)) map.removeLayer(centrosLayer);
+
+    // Restaurar capas normales
     if (!map.hasLayer(pacientesLayer)) pacientesLayer.addTo(map);
     if (!map.hasLayer(saludMentalLayer)) saludMentalLayer.addTo(map);
+
+    // Ocultar IVS legend hasta que applyFilter la evalúe
+    ivsLegendEl.style.display = 'none';
+
+    // Restaurar leyenda normal — applyFilter recalcula todo desde cero
+    applyFilter();
   }
 }
 
 suicidioBtn.addEventListener("click", toggleSuicidioMode);
+
+
 
 async function loadIVSBarrios() {
   setStatus("Cargando IVS por barrios...");
@@ -1007,7 +1306,86 @@ async function loadPacientesGlobal() {
 
 
 // ---------- Aplicar filtro ----------
+function updateFilterButtonTexts(selectedZonas, selectedSeccionales, selectedIVS) {
+  // Zonas
+  if (selectedZonas.length === 0) {
+    zonasBtn.textContent = "Ninguna";
+  } else if (selectedZonas.length === zonasList.querySelectorAll("input[type=checkbox]").length) {
+    zonasBtn.textContent = "Todas";
+  } else {
+    zonasBtn.textContent = `${selectedZonas.length} seleccionadas`;
+  }
+  // Seccionales
+  if (selectedSeccionales.length === 0) {
+    seccionalesBtn.textContent = "Ninguna";
+  } else if (selectedSeccionales.length === seccionalesList.querySelectorAll("input[type=checkbox]").length) {
+    seccionalesBtn.textContent = "Todas";
+  } else {
+    seccionalesBtn.textContent = `${selectedSeccionales.length} seleccionadas`;
+  }
+  // IVS
+  if (selectedIVS.length === 5) {
+    ivsBtn.textContent = "Todos";
+  } else if (selectedIVS.length === 0) {
+    ivsBtn.textContent = "Ninguno";
+  } else {
+    ivsBtn.textContent = `IVS: ${selectedIVS.join(", ")}`;
+  }
+}
+
 function applyFilter() {
+  // Si estamos en modo suicidio, re-renderizar suicidio con los filtros actuales
+  if (suicidioModoActivo) {
+    const selectedZonas = zonasControls.getChecked();
+    const selectedSeccionales = seccionalesControls.getChecked();
+    const selectedIVS = ivsControls.getChecked();
+    updateFilterButtonTexts(selectedZonas, selectedSeccionales, selectedIVS);
+
+    // BUG 1 & 4 & 5: Renderizar polígonos de zonas, seccionales e IVS también en modo suicidio
+    // Render Zonas
+    if (selectedZonas.length > 0) {
+      if (!map.hasLayer(zonasLayer)) zonasLayer.addTo(map);
+      renderZonas(selectedZonas);
+    } else {
+      zonasLayer.clearLayers();
+      if (map.hasLayer(zonasLayer)) map.removeLayer(zonasLayer);
+    }
+
+    // Render Seccionales con colores (BUG 4)
+    if (selectedSeccionales.length > 0) {
+      if (!map.hasLayer(seccionalesLayer)) seccionalesLayer.addTo(map);
+      renderSeccionales(selectedSeccionales);
+    } else {
+      seccionalesLayer.clearLayers();
+      if (map.hasLayer(seccionalesLayer)) map.removeLayer(seccionalesLayer);
+    }
+
+    // Render IVS Barrios con colores (BUG 5)
+    if (selectedIVS.length > 0) {
+      if (!map.hasLayer(ivsBarriosLayer)) ivsBarriosLayer.addTo(map);
+      renderIVSBarrios(selectedIVS);
+      ivsLegendEl.style.display = 'block';
+    } else {
+      ivsBarriosLayer.clearLayers();
+      if (map.hasLayer(ivsBarriosLayer)) map.removeLayer(ivsBarriosLayer);
+      ivsLegendEl.style.display = 'none';
+    }
+
+    // BUG 6: Render Establecimientos Públicos en modo suicidio
+    const selectedTipos = msControls.getChecked();
+    if (selectedTipos.length > 0) {
+      if (!map.hasLayer(centrosLayer)) centrosLayer.addTo(map);
+      renderCentrosHorariosMulti(chRows, selectedTipos);
+    } else {
+      centrosLayer.clearLayers();
+      if (map.hasLayer(centrosLayer)) map.removeLayer(centrosLayer);
+    }
+
+    const count = renderSuicidio();
+    updateSuicidioFilterLegend();
+    return;
+  }
+
   const selectedSM = smControls.getChecked();
   const selectedTipos = msControls.getChecked();
   const selectedZonas = zonasControls.getChecked();
