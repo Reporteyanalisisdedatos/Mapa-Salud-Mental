@@ -616,10 +616,14 @@ function renderPacientes(pacPorEfectorData, selectedIVS, selectedEfectores, sele
   }
 
   pacPorEfectorData.forEach((r) => {
-    // Filtrar por efector
     // Filtrar por efector — compara contra efector_sm y también contra efector_id por compatibilidad
-    const efectorSM = normTxt(r.efector_sm || "");
-    const efectorId = normTxt(r.efector_id || "");
+    // Redirigir "Dirección de Salud Mental" → "Centro Municipal de Salud Mental - Tramas" (fusionados)
+    let efectorSM = normTxt(r.efector_sm || "");
+    let efectorId = normTxt(r.efector_id || "");
+    if (efectorSM === normTxt("DIRECCION DE SALUD MENTAL") || efectorId === normTxt("DIRECCION DE SALUD MENTAL")) {
+      efectorSM = normTxt("CENTRO MUNICIPAL DE SALUD MENTAL - TRAMAS");
+      efectorId = normTxt("CENTRO MUNICIPAL DE SALUD MENTAL - TRAMAS");
+    }
     if (!efectorSet.has(efectorSM) && !efectorSet.has(efectorId)) return;
 
     const lat = num(r.lat), lng = num(r.lng);
@@ -659,7 +663,11 @@ function renderPacientes(pacPorEfectorData, selectedIVS, selectedEfectores, sele
 
     // Formatear fecha_max como última atención
     const fechaMax = r.fecha_max ? new Date(r.fecha_max).toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric" }) : null;
-    const lugar = (r.efector_sm || "").trim();
+    // Mostrar "Centro Municipal de Salud Mental - Tramas" si el efector original era "Dirección de Salud Mental"
+    const lugarRaw = (r.efector_sm || "").trim();
+    const lugar = normTxt(lugarRaw) === normTxt("DIRECCION DE SALUD MENTAL") 
+      ? "Centro Municipal de Salud Mental - Tramas" 
+      : lugarRaw;
 
     const tooltipText = `<b>Paciente</b><br/>` +
       `Efector última atención: ${lugar || 'Sin dato'}<br/>` +
@@ -837,7 +845,26 @@ function updateStats({ smCount, smAt, smPac, centrosCount, pacGeo }) {
 async function loadSaludMental() {
   setStatus("Cargando Salud Mental...");
   const json = await fetch(`./data/atenciones_salud_mental.json?v=${Date.now()}`, { cache: "no-store" }).then(r => r.json());
-  smRows = json.data || [];
+  const rawRows = json.data || [];
+
+  // --- Fusionar "Dirección de Salud Mental" en "Centro Municipal de Salud Mental - Tramas" ---
+  const TRAMAS_KEY = "CENTRO MUNICIPAL DE SALUD MENTAL - TRAMAS";
+  const DSM_KEY = "DIRECCION DE SALUD MENTAL";
+
+  const tramas = rawRows.find(r => normTxt(r.centro || r.efector_id || "") === normTxt(TRAMAS_KEY));
+  const dsm    = rawRows.find(r => normTxt(r.centro || r.efector_id || "") === normTxt(DSM_KEY));
+
+  if (tramas && dsm) {
+    // Sumar atenciones y pacientes de DSM a Tramas (geolocalización permanece la de Tramas)
+    tramas.atenciones = (num(tramas.atenciones) || 0) + (num(dsm.atenciones) || 0);
+    tramas.pacientes  = (num(tramas.pacientes)  || 0) + (num(dsm.pacientes)  || 0);
+    // Eliminar la fila de Dirección de Salud Mental del listado
+    smRows = rawRows.filter(r => normTxt(r.centro || r.efector_id || "") !== normTxt(DSM_KEY));
+  } else {
+    smRows = rawRows;
+    console.warn("Fusión Tramas/DSM: no se encontraron ambos efectores. Verificar nombres en el JSON.",
+      { tramas: !!tramas, dsm: !!dsm });
+  }
 }
 
 async function loadCentrosHorarios() {
