@@ -986,23 +986,27 @@ function updateSuicidioFilterLegend() {
     const aniosOrdenados = Object.keys(porAnio).sort().reverse();
     if (aniosOrdenados.length > 0) {
       resumenAnios = `
-        <div style="margin-top:10px; border-top:1px solid #eee; padding-top:8px;">
-          <div style="font-size:11px; font-weight:700; color:#333; margin-bottom:6px;">📊 En área seleccionada</div>
+        <div style="margin-top:12px; border-top:2px solid #f0f0f6; padding-top:12px;">
+          <div style="font-size:13px; font-weight:700; color:#1a1a2e; margin-bottom:10px; display:flex; align-items:center; gap:6px;">
+            <span style="background:#e8eaf6; border-radius:6px; padding:3px 8px; font-size:12px;">📊 En área seleccionada</span>
+          </div>
           ${aniosOrdenados.map(anio => `
-            <div style="margin-bottom:5px;">
-              <div style="font-size:10px; font-weight:700; color:#555;">📅 ${anio}</div>
-              <div style="display:flex; gap:4px; margin-top:2px;">
-                <div style="flex:1; background:#f0f0f0; border-radius:4px; padding:3px 5px; text-align:center;">
-                  <div style="font-size:8px; color:#666; text-transform:uppercase;">Total</div>
-                  <div style="font-size:13px; font-weight:700;">${porAnio[anio].total}</div>
+            <div style="margin-bottom:8px; background:#fafafa; border-radius:10px; padding:8px 10px; border:1px solid #ebebf0;">
+              <div style="font-size:12px; font-weight:700; color:#4a5568; margin-bottom:6px; display:flex; align-items:center; gap:4px;">
+                <span>📅</span> <span>${anio}</span>
+              </div>
+              <div style="display:flex; gap:6px;">
+                <div style="flex:1; background:#e8f4fd; border-radius:7px; padding:5px 6px; text-align:center;">
+                  <div style="font-size:10px; color:#2c6fa8; font-weight:600; text-transform:uppercase; letter-spacing:0.4px;">Total</div>
+                  <div style="font-size:18px; font-weight:800; color:#1a4971;">${porAnio[anio].total}</div>
                 </div>
-                <div style="flex:1; background:#f0f0f0; border-radius:4px; padding:3px 5px; text-align:center;">
-                  <div style="font-size:8px; color:#666; text-transform:uppercase;">F</div>
-                  <div style="font-size:13px; font-weight:700;">${porAnio[anio].F}</div>
+                <div style="flex:1; background:#fde8f0; border-radius:7px; padding:5px 6px; text-align:center;">
+                  <div style="font-size:10px; color:#a0305a; font-weight:600; text-transform:uppercase; letter-spacing:0.4px;">Fem.</div>
+                  <div style="font-size:18px; font-weight:800; color:#7b1e42;">${porAnio[anio].F}</div>
                 </div>
-                <div style="flex:1; background:#f0f0f0; border-radius:4px; padding:3px 5px; text-align:center;">
-                  <div style="font-size:8px; color:#666; text-transform:uppercase;">M</div>
-                  <div style="font-size:13px; font-weight:700;">${porAnio[anio].M}</div>
+                <div style="flex:1; background:#e8f0fd; border-radius:7px; padding:5px 6px; text-align:center;">
+                  <div style="font-size:10px; color:#2c4fa8; font-weight:600; text-transform:uppercase; letter-spacing:0.4px;">Masc.</div>
+                  <div style="font-size:18px; font-weight:800; color:#1a2e71;">${porAnio[anio].M}</div>
                 </div>
               </div>
             </div>
